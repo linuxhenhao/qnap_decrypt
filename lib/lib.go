@@ -48,8 +48,6 @@ func DecipherOpensslFile(filepath, dstPath, password string) error {
 	hash := md5.New()
 	// IV Size is equal to blockSize, blockSize can be gotten by ase.NewCipher(key) block.BlockSize()
 	key, iv := crypto.EVP_BytesToKey(AES_KEY_LENGTH/BYTE_SIZE, BLOCK_SIZE, hash, salt, []byte(password), ITERATIONS)
-	fmt.Println(key, len(key))
-	fmt.Println(iv, len(iv))
 	err = DecryptStreamToStream(f, out, key, iv)
 	return errors.Wrap(err, fname)
 }
@@ -64,10 +62,15 @@ func DecryptStreamToStream(input io.Reader, out io.Writer, key, iv []byte) error
 	blockSize := block.BlockSize()
 	inBuffer, outBuffer := make([]byte, blockSize), make([]byte, blockSize)
 	ecb := cipher.NewCBCDecrypter(block, iv)
+	first := true
 	for {
 		if _, err := input.Read(inBuffer); err == nil {
 			// write last decrypted block data after next read
-			_, err = out.Write(outBuffer)
+			if first {
+				first = false
+			} else {
+				_, err = out.Write(outBuffer)
+			}
 			ecb.CryptBlocks(outBuffer, inBuffer)
 			if err != nil {
 				return errors.Wrap(err, fname+": out.Write")
