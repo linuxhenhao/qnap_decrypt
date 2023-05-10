@@ -16,6 +16,6 @@ Therefore, here is a version implemented in go.
 # install and usage
 
 ```bash
-go install github.com/linuxhenhao/qnap_decrypt
+go install github.com/linuxhenhao/qnap_decrypt@latest
 qnap_decrypt -i input_path -o output_path -k password
 ```
