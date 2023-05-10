@@ -1,0 +1,4 @@
+github.com/pkg/errors v0.9.1 h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=
+github.com/pkg/errors v0.9.1/go.mod h1:bwawxfHBFNV+L2hUp1rHADufV3IMtnDRdf1r5NINEl0=
+github.com/scritch007/go-tools v0.0.0-20160321154508-d64d2475745e h1:6VTfXHSs2s/ebjoCUUPTI0kOkL0S1e7zR9qAbJ7u49Y=
+github.com/scritch007/go-tools v0.0.0-20160321154508-d64d2475745e/go.mod h1:oyQjcTp+ue1n2bFqdtaoFtAUlDBtRe1a4TRP88xiKso=
