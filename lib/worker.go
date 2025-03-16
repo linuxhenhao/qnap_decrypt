@@ -114,9 +114,27 @@ func readFile(ctx *PipelineContext, f *os.File, path, relPath string) {
 		RelPath: relPath,
 	}
 	start := time.Now()
+	// readFile 中的修改
 	defer func() {
-		fmt.Printf("file %s: started at %s, end at %s, cost %s\n", path, start.Format("2006-01-02 15:04:05"), time.Now().Format("2006-01-02 15:04:05"), time.Since(start))
-	}()
+	    fmt.Printf("file %s: started at %s, end at %s, cost %s\n", path, 
+	        start.Format("2006-01-02 15:04:05.000"),
+	        time.Now().Format("2006-01-02 15:04:05.000"),
+	        time.Since(start))
+	    }()
+	
+	// dataDecryptor 中的修改
+	        fmt.Printf("decrypt %s: started at %s, end at %s, cost %s\n", 
+	            fileData.Path, 
+	            start.Format("2006-01-02 15:04:05.000"),
+	            time.Now().Format("2006-01-02 15:04:05.000"),
+	            time.Since(start))
+	
+	// fileWriter 中的修改
+	        fmt.Printf("write %s: started at %s, end at %s, cost %s\n", 
+	            fileData.Path,
+	            start.Format("2006-01-02 15:04:05.000"),
+	            time.Now().Format("2006-01-02 15:04:05.000"),
+	            time.Since(start))
 	for {
 		buf := make([]byte, ctx.BufferSize)
 		isFinal := false
