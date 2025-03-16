@@ -2,7 +2,6 @@ package lib
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,14 +9,11 @@ import (
 )
 
 // 状态文件名
-const (
-	StateFileName     = ".qnap_decrypt_state.json"
-	StateFileNameTemp = ".qnap_decrypt_state.tmp"
-)
+const StateFileName = ".qnap_decrypt_state.txt"
 
 // ProcessState 表示处理状态
 type ProcessState struct {
-	ProcessedFiles map[string]bool `json:"processed_files"` // 已处理文件的相对路径映射
+	ProcessedFiles map[string]bool // 已处理文件的相对路径映射
 	mutex          sync.RWMutex    // 用于并发安全的读写锁
 	file           *os.File        // 状态文件句柄
 	writer         *bufio.Writer   // 缓冲写入器
@@ -55,11 +51,7 @@ func LoadState(destDir string) (*ProcessState, error) {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		var relPath string
-		if err := json.Unmarshal(scanner.Bytes(), &relPath); err != nil {
-			return nil, fmt.Errorf("解析状态文件失败: %w", err)
-		}
-		state.ProcessedFiles[relPath] = true
+		state.ProcessedFiles[scanner.Text()] = true
 	}
 
 	if err := scanner.Err(); err != nil {
@@ -93,13 +85,7 @@ func (ps *ProcessState) MarkProcessed(relPath string) {
 
 	if !ps.ProcessedFiles[relPath] {
 		ps.ProcessedFiles[relPath] = true
-		// 追加写入新处理的文件
-		data, err := json.Marshal(relPath)
-		if err != nil {
-			fmt.Printf("序列化失败: %v\n", err)
-			return
-		}
-		if _, err := ps.writer.Write(append(data, '\n')); err != nil {
+		if _, err := ps.writer.WriteString(relPath + "\n"); err != nil {
 			fmt.Printf("写入状态文件失败: %v\n", err)
 			return
 		}
