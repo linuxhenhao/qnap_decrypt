@@ -94,10 +94,6 @@ func (wp *WorkerPool) worker() {
 			// 解密成功，只有在有状态对象且有相对路径时才标记为已处理
 			if wp.State != nil && job.RelPath != "" {
 				wp.State.MarkProcessed(job.RelPath)
-				// 每成功处理一个文件就保存一次状态
-				if err := wp.State.SaveState(wp.DestDir); err != nil {
-					wp.ErrorChan <- fmt.Errorf("保存状态失败: %w", err)
-				}
 			}
 		}
 
@@ -160,6 +156,9 @@ func ProcessPath(srcPath, destPath, password string, workerCount, bufferSize int
 	// 等待所有任务完成
 	pool.Wait()
 
+	if pool.State != nil {
+		pool.State.Close()
+	}
 	// 收集并返回错误信息
 	var errs []error
 	for err := range pool.ErrorChan {
