@@ -225,6 +225,7 @@ func dataDecryptor(ctx *PipelineContext) {
 		ctx.wg.Done()
 	}()
 	for fileData := range ctx.InputChan {
+		start := time.Now()
 		// 流式解密数据
 		outData := &FileData{
 			Path:     fileData.Path,
@@ -240,6 +241,11 @@ func dataDecryptor(ctx *PipelineContext) {
 		}
 		// 正常处理
 		close(outData.DataChan)
+		fmt.Printf("decrypt %s: started at %s, end at %s, cost %s\n", 
+			fileData.Path, 
+			start.Format("2006-01-02 15:04:05"),
+			time.Now().Format("2006-01-02 15:04:05"),
+			time.Since(start))
 	}
 }
 
@@ -247,6 +253,7 @@ func dataDecryptor(ctx *PipelineContext) {
 func fileWriter(ctx *PipelineContext) {
 	defer ctx.wg.Done()
 	for fileData := range ctx.OutputChan {
+		start := time.Now()
 		destPath := filepath.Join(ctx.DestDir, fileData.RelPath)
 		destDir := filepath.Dir(destPath)
 		if err := os.MkdirAll(destDir, 0755); err != nil {
@@ -270,6 +277,11 @@ func fileWriter(ctx *PipelineContext) {
 				ctx.ErrorChan <- fmt.Errorf("file %s SaveState failed, %w", fileData.Path, err)
 			}
 		}
+		fmt.Printf("write %s: started at %s, end at %s, cost %s\n", 
+			fileData.Path,
+			start.Format("2006-01-02 15:04:05"),
+			time.Now().Format("2006-01-02 15:04:05"),
+			time.Since(start))
 	}
 }
 
