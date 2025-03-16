@@ -19,24 +19,45 @@ const (
 	ITERATIONS     = 1
 )
 
-func IsOpensslFile(filepath string) (bool, error) {
-	f, err := os.Open(filepath)
-	if err != nil {
-		return false, fmt.Errorf("IsOpensslFile: %w", err)
+// CreateBufferedReader 创建一个BufferedReader，用于读取文件
+// 这个函数可以在多个地方复用同一个BufferedReader，避免重复创建
+func CreateBufferedReader(f *os.File, bufferSize ...int) *BufferedReader {
+	bufSize := DefaultBufferSize
+	if len(bufferSize) > 0 && bufferSize[0] > 0 {
+		bufSize = bufferSize[0]
 	}
-	defer f.Close()
+	return NewBufferedReader(f, bufSize)
+}
+
+func IsOpensslFile(f *os.File) (bool, error) {
+	// 创建一个BufferedReader来读取文件头部
+	bufferedReader := CreateBufferedReader(f)
+	return IsOpensslReader(bufferedReader)
+}
+
+// IsOpensslReader 检查给定的BufferedReader是否指向一个OpenSSL加密文件
+// 这个函数不会改变底层文件的位置，因为它只读取前8个字节
+func IsOpensslReader(reader *BufferedReader) (bool, error) {
 	buf := make([]byte, SALT_SIZE)
-	f.Read(buf)
+	_, err := reader.Read(buf)
+	if err != nil {
+		return false, err
+	}
 	return string(buf) == SALT_STR, nil
 }
 
-func DecipherOpensslFile(filepath, dstPath, password string) error {
-	fname := "DecipherOpensslFile"
-	f, err := os.Open(filepath)
-	if err != nil {
-		return fmt.Errorf("%s: %w", fname, err)
-	}
-	defer f.Close()
+// DecipherOpensslFile 使用文件指针解密OpenSSL加密文件
+// 这是为了向后兼容保留的函数
+func DecipherOpensslFile(f *os.File, dstPath, password string, bufferSize ...int) error {
+	// 复用CreateBufferedReader函数创建BufferedReader
+	bufferedReader := CreateBufferedReader(f, bufferSize...)
+	return DecipherOpensslReader(f, bufferedReader, dstPath, password, bufferSize...)
+}
+
+// DecipherOpensslReader 使用已创建的BufferedReader解密OpenSSL加密文件
+// 这个函数可以避免重复创建BufferedReader，提高性能
+func DecipherOpensslReader(f *os.File, reader *BufferedReader, dstPath, password string, bufferSize ...int) error {
+	fname := "DecipherOpensslReader"
 	salt := make([]byte, SALT_SIZE)
 	f.Seek(SALT_SIZE, 0)
 	f.Read(salt)
@@ -48,7 +69,14 @@ func DecipherOpensslFile(filepath, dstPath, password string) error {
 	hash := md5.New()
 	// IV Size is equal to blockSize, blockSize can be gotten by ase.NewCipher(key) block.BlockSize()
 	key, iv := crypto.EVP_BytesToKey(AES_KEY_LENGTH/BYTE_SIZE, BLOCK_SIZE, hash, salt, []byte(password), ITERATIONS)
-	err = DecryptStreamToStream(f, out, key, iv)
+	// 使用已创建的BufferedReader和新创建的BufferedWriter
+	bufSize := DefaultBufferSize
+	if len(bufferSize) > 0 && bufferSize[0] > 0 {
+		bufSize = bufferSize[0]
+	}
+	bufferedWriter := NewBufferedWriter(out, bufSize)
+	defer bufferedWriter.Close() // 确保所有缓冲数据都被写入
+	err = DecryptStreamToStream(reader, bufferedWriter, key, iv)
 	return errors.Wrap(err, fname)
 }
 
