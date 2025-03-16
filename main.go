@@ -10,25 +10,21 @@ import (
 
 func main() {
 	var in, out, key string
-	flag.StringVar(&in, "i", "", "input file path")
-	flag.StringVar(&out, "o", "", "output file path")
+	var bufferSize, workerCount int
+	flag.StringVar(&in, "i", "", "input file path or directory")
+	flag.StringVar(&out, "o", "", "output file path or directory")
 	flag.StringVar(&key, "k", "", "password")
+	flag.IntVar(&bufferSize, "b", lib.DefaultBufferSize, "buffer size in bytes (default: 64KB)")
+	flag.IntVar(&workerCount, "w", 4, "worker count for concurrent processing (default: 4)")
 	flag.Parse()
 	if len(in) == 0 || len(out) == 0 || len(key) == 0 {
-		fmt.Printf("Usage: %s -i input_file -o output_path -k password\n", os.Args[0])
+		fmt.Printf("Usage: %s -i input_path -o output_path -k password [-b buffer_size] [-w worker_count]\n", os.Args[0])
 		return
 	}
-	is, err := lib.IsOpensslFile(in)
+
+	// 使用worker池处理文件或目录
+	err := lib.ProcessPath(in, out, key, workerCount, bufferSize)
 	if err != nil {
-		fmt.Printf("err=%v\n", err)
-		return
+		fmt.Printf("处理失败: %v\n", err)
 	}
-	if !is {
-		fmt.Printf("%s is not openssl encrypted file\n", in)
-		return
-	}
-	if err = lib.DecipherOpensslFile(in, out, key); err != nil {
-		fmt.Printf("decryption err: %v\n", err)
-	}
-	return
 }
