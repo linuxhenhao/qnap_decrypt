@@ -6,7 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
+	"syscall"
+	"time"
 )
 
 // 这里移除了WorkerPool相关的结构体和方法，改为直接使用顺序处理方式
@@ -76,9 +79,9 @@ type FileData struct {
 // processDirectoryPipelined 流水线方式处理目录
 func processDirectorySequential(srcDir, destDir, password string, bufferSize int, state *ProcessState) error {
 	ctx := &PipelineContext{
-		InputChan:  make(chan *FileData, 100),
-		OutputChan: make(chan *FileData, 100),
-		ErrorChan:  make(chan error, 100),
+		InputChan:  make(chan *FileData, 4),   // 最多有四个文件在等待处理，不需要提前读取太多
+		OutputChan: make(chan *FileData, 100), //  这里可以大一点，因为是由输入决定的
+		ErrorChan:  make(chan error, 100),     // 这里无所谓
 		Password:   password,
 		BufferSize: bufferSize,
 		State:      state,
@@ -110,6 +113,10 @@ func readFile(ctx *PipelineContext, f *os.File, path, relPath string) {
 		DestDir: ctx.DestDir,
 		RelPath: relPath,
 	}
+	start := time.Now()
+	defer func() {
+		fmt.Printf("file %s: started at %s, end at %s, cost %s\n", path, start.Format("2006-01-02 15:04:05"), time.Now().Format("2006-01-02 15:04:05"), time.Since(start))
+	}()
 	for {
 		buf := make([]byte, ctx.BufferSize)
 		isFinal := false
@@ -143,35 +150,58 @@ func readFile(ctx *PipelineContext, f *os.File, path, relPath string) {
 	}
 }
 
+// sortFilesByInode 按inode排序文件
+// 不会包含文件夹
+func sortFilesByInode(srcDir string) []string {
+	// 实现inode排序逻辑
+	type fileLoc struct {
+		Path string
+		Ino  uint64
+	}
+	files := []fileLoc{}
+	filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			stat := info.Sys().(*syscall.Stat_t)
+			files = append(files, fileLoc{
+				Path: path,
+				Ino:  stat.Ino,
+			})
+		}
+		return nil
+	})
+	// 按inode升序排序
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].Ino < files[j].Ino
+	})
+	out := make([]string, len(files))
+	for _, f := range files {
+		out = append(out, f.Path)
+	}
+	return out
+}
+
 // fileReader 文件读取阶段
 func fileReader(ctx *PipelineContext, srcDir string) {
 	defer func() {
 		close(ctx.InputChan)
 		ctx.wg.Done()
 	}()
-	filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			ctx.ErrorChan <- err
-			return nil
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
+	sortedFiles := sortFilesByInode(srcDir)
+	for _, path := range sortedFiles {
+		// 不会有文件夹
 		rel, _ := filepath.Rel(srcDir, path)
 		if ctx.State.IsProcessed(rel) {
-			return nil
+			continue
 		}
 		f, err := os.Open(path)
 		if err != nil {
 			ctx.ErrorChan <- fmt.Errorf("open file %s failed: %w", path, err)
-			return nil
+			continue
 		}
 		defer f.Close()
 		readFile(ctx, f, path, rel)
-		return nil
-	})
+	}
+
 }
 
 func singleFileReader(ctx *PipelineContext, srcPath string, relPath string) {
@@ -218,7 +248,8 @@ func fileWriter(ctx *PipelineContext) {
 	defer ctx.wg.Done()
 	for fileData := range ctx.OutputChan {
 		destPath := filepath.Join(ctx.DestDir, fileData.RelPath)
-		if err := os.MkdirAll(ctx.DestDir, 0755); err != nil {
+		destDir := filepath.Dir(destPath)
+		if err := os.MkdirAll(destDir, 0755); err != nil {
 			ctx.ErrorChan <- err
 			continue
 		}
