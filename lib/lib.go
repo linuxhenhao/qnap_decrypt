@@ -65,10 +65,7 @@ func DecryptStreamToStream(input io.Reader, out io.Writer, key, iv []byte) error
 	inBuffer, outBuffer := make([]byte, blockSize), make([]byte, blockSize)
 	ecb := cipher.NewCBCDecrypter(block, iv)
 	first := true
-	count := 0
 	for {
-		fmt.Println("count", count)
-		count++
 		if _, err := input.Read(inBuffer); err == nil {
 			// write last decrypted block data after next read
 			if first {
@@ -76,7 +73,6 @@ func DecryptStreamToStream(input io.Reader, out io.Writer, key, iv []byte) error
 			} else {
 				_, err = out.Write(outBuffer)
 			}
-			fmt.Printf("inBuffer hex: %x\n", inBuffer)
 			ecb.CryptBlocks(outBuffer, inBuffer)
 			if err != nil {
 				return errors.Wrap(err, fname+": out.Write")

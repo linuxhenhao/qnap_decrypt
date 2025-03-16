@@ -43,7 +43,6 @@ func ProcessPath(srcPath, destPath, password string, workerCount, bufferSize int
 		if err := os.MkdirAll(destDir, 0755); err != nil {
 			return fmt.Errorf("创建目录失败 %s: %w", destDir, err)
 		}
-		fmt.Println("处理单个文件", srcPath)
 		// 处理单个文件
 		processFileSequential(srcPath, destPath, password, bufferSize)
 		return nil
@@ -133,7 +132,10 @@ func readFile(ctx *PipelineContext, f *os.File, path, relPath string) {
 			fileData.DataChan = make(chan []byte, 100)
 			ctx.InputChan <- fileData
 		}
-		fileData.DataChan <- buf
+		if len(buf) > 0 {
+			// 最后一次读取，EOF，n=0，如果发一次数据后再 Close，会导致接收方无法正确处理
+			fileData.DataChan <- buf
+		}
 		if isFinal && fileData.DataChan != nil {
 			close(fileData.DataChan)
 			return
@@ -177,7 +179,6 @@ func singleFileReader(ctx *PipelineContext, srcPath string, relPath string) {
 		close(ctx.InputChan)
 		ctx.wg.Done()
 	}()
-	fmt.Println("读取单个文件", srcPath)
 	f, err := os.Open(srcPath)
 	if err != nil {
 		ctx.ErrorChan <- fmt.Errorf("open file %s failed: %w", srcPath, err)
@@ -195,7 +196,6 @@ func dataDecryptor(ctx *PipelineContext) {
 	}()
 	for fileData := range ctx.InputChan {
 		// 流式解密数据
-		fmt.Printf("decrypt file %s\n", fileData.Path)
 		outData := &FileData{
 			Path:     fileData.Path,
 			DestDir:  fileData.DestDir,
@@ -217,9 +217,7 @@ func dataDecryptor(ctx *PipelineContext) {
 func fileWriter(ctx *PipelineContext) {
 	defer ctx.wg.Done()
 	for fileData := range ctx.OutputChan {
-		fmt.Printf("write file %s\n", filepath.Join(fileData.DestDir, fileData.RelPath))
 		destPath := filepath.Join(ctx.DestDir, fileData.RelPath)
-		fmt.Println("destPath: ", destPath)
 		if err := os.MkdirAll(ctx.DestDir, 0755); err != nil {
 			ctx.ErrorChan <- err
 			continue
@@ -235,9 +233,11 @@ func fileWriter(ctx *PipelineContext) {
 		if isFailed {
 			continue
 		}
-		ctx.State.MarkProcessed(fileData.RelPath)
-		if err := ctx.State.SaveState(ctx.DestDir); err != nil {
-			ctx.ErrorChan <- fmt.Errorf("file %s SaveState failed, %w", fileData.Path, err)
+		if ctx.State != nil {
+			ctx.State.MarkProcessed(fileData.RelPath)
+			if err := ctx.State.SaveState(ctx.DestDir); err != nil {
+				ctx.ErrorChan <- fmt.Errorf("file %s SaveState failed, %w", fileData.Path, err)
+			}
 		}
 	}
 }
