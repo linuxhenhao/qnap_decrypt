@@ -6,7 +6,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/pkg/errors"
 	"github.com/scritch007/go-tools/crypto"
@@ -19,63 +18,38 @@ const (
 	ITERATIONS     = 1
 )
 
-// CreateBufferedReader 创建一个BufferedReader，用于读取文件
-// 这个函数可以在多个地方复用同一个BufferedReader，避免重复创建
-func CreateBufferedReader(f *os.File, bufferSize ...int) *BufferedReader {
-	bufSize := DefaultBufferSize
-	if len(bufferSize) > 0 && bufferSize[0] > 0 {
-		bufSize = bufferSize[0]
+func IsOpensslEncrypted(buf []byte) bool {
+	// header 是 Salted__ + 8byte 的 salt，还有文件数据，所以长度大于 2*SALT_SIZE
+	if len(buf) <= 2*SALT_SIZE {
+		return false
 	}
-	return NewBufferedReader(f, bufSize)
-}
-
-func IsOpensslFile(f *os.File) (bool, error) {
-	// 创建一个BufferedReader来读取文件头部
-	bufferedReader := CreateBufferedReader(f)
-	return IsOpensslReader(bufferedReader)
-}
-
-// IsOpensslReader 检查给定的BufferedReader是否指向一个OpenSSL加密文件
-// 这个函数不会改变底层文件的位置，因为它只读取前8个字节
-func IsOpensslReader(reader *BufferedReader) (bool, error) {
-	buf := make([]byte, SALT_SIZE)
-	_, err := reader.Read(buf)
-	if err != nil {
-		return false, err
-	}
-	return string(buf) == SALT_STR, nil
-}
-
-// DecipherOpensslFile 使用文件指针解密OpenSSL加密文件
-// 这是为了向后兼容保留的函数
-func DecipherOpensslFile(f *os.File, dstPath, password string, bufferSize ...int) error {
-	// 复用CreateBufferedReader函数创建BufferedReader
-	bufferedReader := CreateBufferedReader(f, bufferSize...)
-	return DecipherOpensslReader(f, bufferedReader, dstPath, password, bufferSize...)
+	return string(buf[:SALT_SIZE]) == SALT_STR
 }
 
 // DecipherOpensslReader 使用已创建的BufferedReader解密OpenSSL加密文件
 // 这个函数可以避免重复创建BufferedReader，提高性能
-func DecipherOpensslReader(f *os.File, reader *BufferedReader, dstPath, password string, bufferSize ...int) error {
+func DecipherOpensslReader(dataChan <-chan []byte, outChan chan<- []byte, password string, bufferSize int) error {
 	fname := "DecipherOpensslReader"
+	reader := NewChannelReader(dataChan)
+	saltMagic := make([]byte, SALT_SIZE)
 	salt := make([]byte, SALT_SIZE)
-	f.Seek(SALT_SIZE, 0)
-	f.Read(salt)
-	out, err := os.Create(dstPath)
+	_, err := reader.Read(saltMagic)
 	if err != nil {
-		return fmt.Errorf("%s: %w", fname, err)
+		return fmt.Errorf("%s ReadSaltMagic: %w", fname, err)
 	}
-	defer out.Close()
+	if string(saltMagic) != SALT_STR {
+		return fmt.Errorf("%s: not a openssl encrypted file", fname)
+	}
+	_, err = reader.Read(salt)
+	if err != nil {
+		return fmt.Errorf("%s ReadSalt: %w", fname, err)
+	}
 	hash := md5.New()
 	// IV Size is equal to blockSize, blockSize can be gotten by ase.NewCipher(key) block.BlockSize()
 	key, iv := crypto.EVP_BytesToKey(AES_KEY_LENGTH/BYTE_SIZE, BLOCK_SIZE, hash, salt, []byte(password), ITERATIONS)
-	// 使用已创建的BufferedReader和新创建的BufferedWriter
-	bufSize := DefaultBufferSize
-	if len(bufferSize) > 0 && bufferSize[0] > 0 {
-		bufSize = bufferSize[0]
-	}
-	bufferedWriter := NewBufferedWriter(out, bufSize)
-	defer bufferedWriter.Close() // 确保所有缓冲数据都被写入
+	// 使用已创建的ChannelReader和新创建的BufferedWriter
+	bufferedWriter := NewChannelBufferedWriter(outChan, bufferSize)
+	defer bufferedWriter.Close()
 	err = DecryptStreamToStream(reader, bufferedWriter, key, iv)
 	return errors.Wrap(err, fname)
 }
@@ -91,7 +65,10 @@ func DecryptStreamToStream(input io.Reader, out io.Writer, key, iv []byte) error
 	inBuffer, outBuffer := make([]byte, blockSize), make([]byte, blockSize)
 	ecb := cipher.NewCBCDecrypter(block, iv)
 	first := true
+	count := 0
 	for {
+		fmt.Println("count", count)
+		count++
 		if _, err := input.Read(inBuffer); err == nil {
 			// write last decrypted block data after next read
 			if first {
@@ -99,6 +76,7 @@ func DecryptStreamToStream(input io.Reader, out io.Writer, key, iv []byte) error
 			} else {
 				_, err = out.Write(outBuffer)
 			}
+			fmt.Printf("inBuffer hex: %x\n", inBuffer)
 			ecb.CryptBlocks(outBuffer, inBuffer)
 			if err != nil {
 				return errors.Wrap(err, fname+": out.Write")
